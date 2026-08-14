@@ -1,7 +1,7 @@
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { spawn, spawnSync } from 'node:child_process'
 import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 interface RuntimeDocument {
   pid: number
@@ -18,9 +18,10 @@ export async function start(options: StartOptions = {}): Promise<void> {
     startDaemon()
     return
   }
+  const launch = resolveDshLaunch()
   await new Promise<void>((resolveRun, reject) => {
-    const child = spawn('dsh', ['--profile', 'discord'], {
-      stdio: 'inherit', env: process.env, shell: process.platform === 'win32',
+    const child = spawn(launch.command, [...launch.prefixArgs, '--profile', 'discord'], {
+      stdio: 'inherit', env: process.env, shell: launch.shell,
     })
     child.once('error', () => reject(new Error('无法启动 dsh；请先安装 DeepSeek Harness。')))
     child.once('exit', code => code === 0 ? resolveRun() : reject(new Error(`Discord profile 已退出（${String(code ?? 1)}）。`)))
@@ -74,13 +75,14 @@ function startDaemon(): void {
   const stderr = join(logs, `${stamp}.stderr.log`)
   const outFd = openSync(stdout, 'a', 0o600)
   const errFd = openSync(stderr, 'a', 0o600)
+  const launch = resolveDshLaunch()
   let child
   try {
-    child = spawn('dsh', ['--profile', 'discord'], {
+    child = spawn(launch.command, [...launch.prefixArgs, '--profile', 'discord'], {
       cwd: process.cwd(),
       detached: true,
       env: process.env,
-      shell: process.platform === 'win32',
+      shell: launch.shell,
       stdio: ['ignore', outFd, errFd],
       windowsHide: true,
     })
@@ -94,6 +96,19 @@ function startDaemon(): void {
   const runtime: RuntimeDocument = { pid: child.pid, startedAt: new Date().toISOString(), stdout, stderr }
   writeFileSync(runtimeFilename(), JSON.stringify(runtime, undefined, 2) + '\n', { encoding: 'utf8', mode: 0o600 })
   process.stdout.write(`dsh-discord 已在后台启动（PID ${String(child.pid)}）。\n`)
+}
+
+/** Avoid a detached cmd.exe console on Windows when dsh is an npm global shim. */
+function resolveDshLaunch(): { command: string; prefixArgs: string[]; shell: boolean } {
+  if (process.platform !== 'win32') return { command: 'dsh', prefixArgs: [], shell: false }
+  const located = spawnSync('where.exe', ['dsh.cmd'], { encoding: 'utf8', windowsHide: true })
+  if (located.status === 0 && typeof located.stdout === 'string') {
+    for (const shim of located.stdout.split(/\r?\n/).map(value => value.trim()).filter(Boolean)) {
+      const bin = join(dirname(shim), 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
+      if (existsSync(bin)) return { command: process.execPath, prefixArgs: [bin], shell: false }
+    }
+  }
+  return { command: 'dsh', prefixArgs: [], shell: true }
 }
 
 function readRuntime(): RuntimeDocument | undefined {
