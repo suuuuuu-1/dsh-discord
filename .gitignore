@@ -1,0 +1,14 @@
+node_modules/
+lib/
+coverage/
+*.log
+.env
+.env.*
+.credentials.yaml
+.dsh/
+state.json
+runtime.json
+*.pid
+dsh-discord-*.tgz
+.DS_Store
+*.tsbuildinfo

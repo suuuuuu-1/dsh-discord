@@ -1,0 +1,14 @@
+# dsh-discord is a dedicated, non-Web profile layer over dsh-base.
+- insert:
+    - id: dsh-discord
+      name: dsh-discord
+      inject: [agentDefaultModel, agents, attachments, credentials, sessions, userQuestions]
+      config:
+        tokenRef: DSH_DISCORD_BOT_TOKEN
+        ownerId: !!js process.env.DSH_DISCORD_OWNER_ID
+        projectRoot: !!js process.env.DSH_DISCORD_PROJECT_ROOT
+        statePath: !!js dshHomePath('dsh-discord', 'state.json')
+        setupMode: !!js process.env.DSH_DISCORD_SETUP === '1'
+        doctorMode: !!js process.env.DSH_DISCORD_DOCTOR === '1'
+        progressIntervalMs: 1500
+        interactionTimeoutMs: 600000
