@@ -28,7 +28,7 @@ An event ID is persisted before side effects. Attachments remain lazy until iden
 
 `AgentController` owns the exact `AgentHandle` for each active conversation. Agent creation/resume is serialized per conversation while different channels can run concurrently. Each Agent installs the current default model selection during unpublished setup and uses the fixed validated `projectRoot` as `cwd`.
 
-Ordinary text and attachments call `followup`; DSH queues them when the Agent is running. `/dsh steer` alone calls `steer`, `/dsh stop` cancels only the current conversation, and `/dsh new` replaces only that conversation's handle and Session.
+Owner DMs call `followup` directly. Guild-channel text requires an explicit bot mention; a thread requires a mention only until it owns a persisted or live Session. DSH queues later `followup` calls when the Agent is running. Per-conversation delivery serialization plus generation-aware idle settlement keeps queued turns on the same reporter without replacing a turn record. `/dsh steer` alone calls `steer`, `/dsh stop` cancels only the current conversation, and `/dsh new` replaces only that conversation's handle and Session.
 
 Session events are routed back by exact Agent/session identity. Approvals and questions also resolve the owning Agent back to its Discord channel, so concurrent conversations cannot receive one another's interaction.
 
@@ -46,7 +46,7 @@ Approval and question callback IDs are random, in-memory, one-shot, owner-authen
 
 Ordinary config contains only `tokenRef: DSH_DISCORD_BOT_TOKEN`. Setup passes a secret to a one-shot mounted profile which writes through `ctx.credentials.set`; runtime and doctor resolve through the same seam. Errors are classified without printing Discord or network error bodies.
 
-The CLI supports foreground operation and a managed daemon with a PID document and per-run stdout/stderr logs under `$DSH_HOME/dsh-discord`. `doctor` verifies DSH services, credential resolution, Gateway login, global command registration, joined guild count, writable text-channel count, and project access.
+The CLI supports foreground operation and a managed daemon with a PID document and per-run stdout/stderr logs under `$DSH_HOME/dsh-discord`. `setup` and `doctor` share one permission definition including `SendMessagesInThreads`; diagnostics verify DSH services, credential resolution, Gateway login, global command registration, joined guild count, writable text-channel count, and project access.
 
 ## Verification
 

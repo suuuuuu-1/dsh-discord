@@ -59,6 +59,115 @@ describe('AgentController MVP chain', () => {
     await state.close()
   })
 
+  it('keeps consecutive followups in one conversation and settles after the whole queue', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-discord-agent-'))
+    directories.push(directory)
+    const state = new StateStore(join(directory, 'state.json'))
+    await state.touchConversation({ channelId: 'thread', guildId: 'guild', kind: 'thread' })
+    const transport = new FakeDiscordTransport()
+    const session = { id: 'queued-session', seq: 0 }
+    let status: 'idle' | 'running' = 'idle'
+    let idle = Promise.resolve()
+    let finish: (() => void) | undefined
+    const followup = vi.fn(() => {
+      if (status === 'running') return
+      status = 'running'
+      idle = new Promise<void>(resolve => { finish = () => { status = 'idle'; resolve() } })
+    })
+    const agent = {
+      id: 'queued-session', session, get status() { return status }, followup,
+      steer: vi.fn(), cancel: vi.fn(), whenIdle: () => idle,
+    } as unknown as Agent
+    const flush = vi.fn().mockResolvedValue(undefined)
+    const ctx = {
+      agents: {
+        create: vi.fn().mockResolvedValue({ agent, dispose: vi.fn().mockResolvedValue(undefined) }),
+        resume: vi.fn(),
+      },
+      sessions: { flush },
+      attachments: {
+        imageLimits: { maxImageBytes: 10_000_000, maxImagesPerMessage: 4, maxMessageImageBytes: 20_000_000 },
+        validateImage: vi.fn(), saveImage: vi.fn(),
+      },
+      agentDefaultModel: { currentSelection: () => ({ provider: 'p', model: 'm' }) },
+    } as unknown as Context
+    const controller = new AgentController(ctx, directory, state, transport, 10)
+
+    await Promise.all([
+      controller.submit('first', 'thread'),
+      controller.submit('second', 'thread'),
+    ])
+    expect(followup).toHaveBeenCalledTimes(2)
+    expect(transport.sent).toHaveLength(1)
+    expect(controller.hasSession('thread')).toBe(true)
+    controller.observe(session, {
+      type: 'assistant/message', seq: 1, time: Date.now(),
+      data: { turn: 1, step: 0, message: { content: [{ type: 'text', text: 'second result' }] } },
+    } as SessionEvent)
+    finish?.()
+    await vi.waitFor(() => expect(transport.edits.at(-1)?.payload.content).toContain('second result'))
+    expect(transport.edits.at(-1)?.channelId).toBe('thread')
+    expect(flush).toHaveBeenCalledOnce()
+    await controller.dispose()
+    await state.close()
+  })
+
+  it('does not finalize the prior turn while a followup arrives during session flush', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-discord-agent-'))
+    directories.push(directory)
+    const state = new StateStore(join(directory, 'state.json'))
+    await state.touchConversation({ channelId: 'dm', kind: 'dm' })
+    const transport = new FakeDiscordTransport()
+    const session = { id: 'race-session', seq: 0 }
+    let status: 'idle' | 'running' = 'idle'
+    let idle = Promise.resolve()
+    let finish: (() => void) | undefined
+    const followup = vi.fn(() => {
+      status = 'running'
+      idle = new Promise<void>(resolve => { finish = () => { status = 'idle'; resolve() } })
+    })
+    const agent = {
+      id: 'race-session', session, get status() { return status }, followup,
+      steer: vi.fn(), cancel: vi.fn(), whenIdle: () => idle,
+    } as unknown as Agent
+    let releaseFirstFlush: (() => void) | undefined
+    const firstFlush = new Promise<void>(resolve => { releaseFirstFlush = resolve })
+    const flush = vi.fn()
+      .mockImplementationOnce(() => firstFlush)
+      .mockResolvedValue(undefined)
+    const ctx = {
+      agents: {
+        create: vi.fn().mockResolvedValue({ agent, dispose: vi.fn().mockResolvedValue(undefined) }),
+        resume: vi.fn(),
+      },
+      sessions: { flush },
+      attachments: {
+        imageLimits: { maxImageBytes: 10_000_000, maxImagesPerMessage: 4, maxMessageImageBytes: 20_000_000 },
+        validateImage: vi.fn(), saveImage: vi.fn(),
+      },
+      agentDefaultModel: { currentSelection: () => ({ provider: 'p', model: 'm' }) },
+    } as unknown as Context
+    const controller = new AgentController(ctx, directory, state, transport, 10)
+
+    await controller.submit('first', 'dm')
+    finish?.()
+    await vi.waitFor(() => expect(flush).toHaveBeenCalledOnce())
+    await controller.submit('second', 'dm')
+    releaseFirstFlush?.()
+    controller.observe(session, {
+      type: 'assistant/message', seq: 2, time: Date.now(),
+      data: { turn: 1, step: 0, message: { content: [{ type: 'text', text: 'latest result' }] } },
+    } as SessionEvent)
+    finish?.()
+    await vi.waitFor(() => expect(transport.edits.at(-1)?.payload.content).toContain('latest result'))
+    expect(followup).toHaveBeenCalledTimes(2)
+    expect(flush).toHaveBeenCalledTimes(2)
+    expect(transport.sent).toHaveLength(1)
+    expect(transport.edits.at(-1)?.channelId).toBe('dm')
+    await controller.dispose()
+    await state.close()
+  })
+
   it('persists image attachments and embeds UTF-8 code attachments in the user message', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-discord-agent-'))
     directories.push(directory)

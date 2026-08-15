@@ -17,7 +17,12 @@ import {
 } from 'discord.js'
 import { DSH_COMMAND_BODY } from './commands.js'
 import { componentRows } from './components.js'
+import {
+  missingDiscordPermissions,
+  REQUIRED_DISCORD_PERMISSION_BITS,
+} from './permissions.js'
 import type {
+  DiscordDiagnostics,
   DiscordEventHandler,
   DiscordInboundEvent,
   DiscordInteractionResponse,
@@ -48,6 +53,8 @@ export class DiscordJsTransport implements DiscordTransport {
     client.on(Events.Error, () => undefined)
     client.on(Events.MessageCreate, (message) => {
       if (message.author.bot) return
+      const botId = client.user?.id
+      const mentionsBot = botId !== undefined && message.mentions.users.has(botId)
       const event: DiscordInboundEvent = {
         kind: 'message',
         eventId: message.id,
@@ -55,7 +62,8 @@ export class DiscordJsTransport implements DiscordTransport {
         channelId: message.channelId,
         ...(message.guildId === null ? {} : { guildId: message.guildId }),
         contextKind: message.guildId === null ? 'dm' : message.channel.isThread() ? 'thread' : 'channel',
-        text: message.content,
+        text: botId === undefined ? message.content : stripBotMention(message.content, botId),
+        mentionsBot,
         attachments: message.attachments.map(attachment => ({
           id: attachment.id,
           name: attachment.name,
@@ -122,25 +130,29 @@ export class DiscordJsTransport implements DiscordTransport {
     await channel.messages.edit(message.messageId, this.messageOptions(payload))
   }
 
-  async diagnose(): Promise<{ guilds: number; writableChannels: number }> {
+  async diagnose(): Promise<DiscordDiagnostics> {
     const client = this.requireClient()
     let writableChannels = 0
-    const required = new PermissionsBitField([
-      PermissionsBitField.Flags.ViewChannel,
-      PermissionsBitField.Flags.SendMessages,
-      PermissionsBitField.Flags.ReadMessageHistory,
-      PermissionsBitField.Flags.AttachFiles,
-      PermissionsBitField.Flags.EmbedLinks,
-    ])
+    let textChannels = 0
+    const available = new PermissionsBitField()
+    const required = new PermissionsBitField(REQUIRED_DISCORD_PERMISSION_BITS)
     for (const guild of client.guilds.cache.values()) {
       const me = guild.members.me ?? await guild.members.fetchMe()
       const channels = await guild.channels.fetch()
       for (const channel of channels.values()) {
         if (channel?.isTextBased() !== true || channel.isDMBased()) continue
-        if (channel.permissionsFor(me)?.has(required) === true) writableChannels += 1
+        textChannels += 1
+        const permissions = channel.permissionsFor(me)
+        if (permissions === null) continue
+        available.add(permissions.bitfield)
+        if (permissions.has(required)) writableChannels += 1
       }
     }
-    return { guilds: client.guilds.cache.size, writableChannels }
+    return {
+      guilds: client.guilds.cache.size,
+      writableChannels,
+      missingPermissions: textChannels === 0 ? [] : missingDiscordPermissions(available),
+    }
   }
 
   async stop(): Promise<void> {
@@ -234,6 +246,10 @@ export class DiscordJsTransport implements DiscordTransport {
     }
     return data
   }
+}
+
+function stripBotMention(content: string, botId: string): string {
+  return content.replace(new RegExp(`<@!?${botId}>`, 'g'), '').trim()
 }
 
 function discordErrorDetails(error: unknown): {

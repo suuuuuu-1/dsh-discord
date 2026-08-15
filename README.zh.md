@@ -1,8 +1,12 @@
 # dsh-discord
 
+![dsh-discord — Discord 原生的 DeepSeek Harness 远程控制器](assets/dsh-discord-cover.png)
+
 DeepSeek Harness 的双向 Discord 桥接与远程控制插件。
 
 插件以独立 `discord` profile 运行，支持单 Owner、单 Project，以及 Discord DM、服务器文字频道和 Thread。每个 Discord 会话独立映射一个可恢复的 DSH Session；普通文本使用 `followup`，运行中自动排队，只有 `/dsh steer` 进入当前任务最近的步骤。
+
+消息触发规则：Owner 在 DM 中可直接对话；Guild 普通文字频道中的自然语言必须明确 `@Bot`；陌生 Thread 的第一条任务也必须 `@Bot`，一旦 Thread 已绑定 DSH Session，后续对话无需重复 mention。`/dsh` Slash Command 始终不要求 mention。未触发的消息会静默忽略。
 
 ## 功能
 
@@ -26,7 +30,7 @@ DeepSeek Harness 的双向 Discord 桥接与远程控制插件。
 - Discord Bot 应用及 Token
 - Discord Developer Portal → Bot → Privileged Gateway Intents 中开启 **Message Content Intent**
 
-Bot 安装到服务器后，应在需要使用的频道拥有 View Channel、Send Messages、Read Message History、Embed Links 和 Attach Files。插件不维护额外的 Guild/Channel 白名单；Discord 自身的服务器、频道和角色权限决定 Bot 能看到哪里。为了避免其他成员控制本机，入站操作仍只接受配置的 Owner ID。
+Bot 安装到服务器后，应在需要使用的频道拥有 View Channel、Send Messages、**Send Messages in Threads**、Read Message History、Embed Links 和 Attach Files。`setup` 生成的邀请链接会请求这组权限，`doctor` 也会检查同一组权限。插件不维护额外的 Guild/Channel 白名单；Discord 自身的服务器、频道和角色权限决定 Bot 能看到哪里。为了避免其他成员控制本机，入站操作仍只接受配置的 Owner ID。
 
 ## 安装与运行
 

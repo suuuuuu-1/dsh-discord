@@ -1,6 +1,6 @@
 # Security Policy
 
-`dsh-discord` is a personal coding-agent controller. It requires an exact Discord Owner ID and an accessible configured project directory before any Discord event can drive an Agent. It accepts that owner in DMs, guild text channels, and threads that Discord itself exposes to the Bot; it does not duplicate Discord's Guild/Channel/role permission system with another allowlist.
+`dsh-discord` is a personal coding-agent controller. It requires an exact Discord Owner ID and an accessible configured project directory before any Discord event can drive an Agent. It accepts that owner directly in DMs, behind an explicit bot mention in guild text channels, and without repeated mentions only after a thread owns a live or persisted Session. Discord itself controls channel visibility; the plugin does not duplicate its Guild/Channel/role permission system with another allowlist.
 
 The Discord Bot Token is represented in ordinary configuration only by the `DSH_DISCORD_BOT_TOKEN` credential reference. It is stored and resolved through DSH `ctx.credentials` and must never appear in normal config, logs, bridge state, Session events, or error messages.
 

@@ -57,7 +57,7 @@ describe('BridgeRouter', () => {
     await state.close()
   })
 
-  it('accepts owner messages in guild threads and binds a separate conversation', async () => {
+  it('submits an owner message in a guild channel only when the bot is mentioned', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-discord-router-'))
     directories.push(directory)
     const state = new StateStore(join(directory, 'state.json'))
@@ -70,11 +70,86 @@ describe('BridgeRouter', () => {
       { handle: () => undefined } as unknown as QuestionInteraction,
     )
     await router.handle({
-      kind: 'message', eventId: 'thread-event', userId: '123', guildId: 'guild', channelId: 'thread',
-      contextKind: 'thread', text: 'fix it', attachments: [],
+      kind: 'message', eventId: 'plain', userId: '123', guildId: 'guild', channelId: 'channel',
+      contextKind: 'channel', text: 'ignore me', attachments: [], mentionsBot: false,
     })
-    expect(submit).toHaveBeenCalledWith('fix it', 'thread', false, [])
+    expect(submit).not.toHaveBeenCalled()
+    expect(state.conversation('channel')).toBeUndefined()
+    await router.handle({
+      kind: 'message', eventId: 'mentioned', userId: '123', guildId: 'guild', channelId: 'channel',
+      contextKind: 'channel', text: 'fix it', attachments: [], mentionsBot: true,
+    })
+    expect(submit).toHaveBeenCalledWith('fix it', 'channel', false, [])
+    expect(state.conversation('channel')).toMatchObject({ guildId: 'guild', kind: 'channel' })
+    await state.close()
+  })
+
+  it('continues a bound thread without a mention and ignores an unbound thread', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-discord-router-'))
+    directories.push(directory)
+    const state = new StateStore(join(directory, 'state.json'))
+    await state.touchConversation({ channelId: 'bound-thread', guildId: 'guild', kind: 'thread' })
+    await state.setSessionId('bound-thread', 'persisted-session')
+    const transport = new FakeDiscordTransport()
+    const submit = vi.fn().mockResolvedValue(undefined)
+    const router = new BridgeRouter(
+      transport, new SecurityPolicy({ ownerId: '123', projectRoot: directory }), state,
+      { submit, hasSession: () => false } as unknown as AgentController,
+      { handle: () => undefined } as unknown as ApprovalInteraction,
+      { handle: () => undefined } as unknown as QuestionInteraction,
+    )
+    await router.handle({
+      kind: 'message', eventId: 'bound', userId: '123', guildId: 'guild', channelId: 'bound-thread',
+      contextKind: 'thread', text: 'continue', attachments: [], mentionsBot: false,
+    })
+    await router.handle({
+      kind: 'message', eventId: 'unknown', userId: '123', guildId: 'guild', channelId: 'unknown-thread',
+      contextKind: 'thread', text: 'ignore', attachments: [], mentionsBot: false,
+    })
+    expect(submit).toHaveBeenCalledOnce()
+    expect(submit).toHaveBeenCalledWith('continue', 'bound-thread', false, [])
+    expect(state.conversation('unknown-thread')).toBeUndefined()
+    await state.close()
+  })
+
+  it('requires a mention for the first message in an unbound thread', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-discord-router-'))
+    directories.push(directory)
+    const state = new StateStore(join(directory, 'state.json'))
+    const transport = new FakeDiscordTransport()
+    const submit = vi.fn().mockResolvedValue(undefined)
+    const router = new BridgeRouter(
+      transport, new SecurityPolicy({ ownerId: '123', projectRoot: directory }), state,
+      { submit, hasSession: () => false } as unknown as AgentController,
+      { handle: () => undefined } as unknown as ApprovalInteraction,
+      { handle: () => undefined } as unknown as QuestionInteraction,
+    )
+    await router.handle({
+      kind: 'message', eventId: 'first', userId: '123', guildId: 'guild', channelId: 'thread',
+      contextKind: 'thread', text: 'start here', attachments: [], mentionsBot: true,
+    })
+    expect(submit).toHaveBeenCalledWith('start here', 'thread', false, [])
     expect(state.conversation('thread')).toMatchObject({ guildId: 'guild', kind: 'thread' })
+    await state.close()
+  })
+
+  it('continues a live thread while its Session is still being opened', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-discord-router-'))
+    directories.push(directory)
+    const state = new StateStore(join(directory, 'state.json'))
+    const transport = new FakeDiscordTransport()
+    const submit = vi.fn().mockResolvedValue(undefined)
+    const router = new BridgeRouter(
+      transport, new SecurityPolicy({ ownerId: '123', projectRoot: directory }), state,
+      { submit, hasSession: (channelId: string) => channelId === 'live-thread' } as unknown as AgentController,
+      { handle: () => undefined } as unknown as ApprovalInteraction,
+      { handle: () => undefined } as unknown as QuestionInteraction,
+    )
+    await router.handle({
+      kind: 'message', eventId: 'live', userId: '123', guildId: 'guild', channelId: 'live-thread',
+      contextKind: 'thread', text: 'queued continuation', attachments: [], mentionsBot: false,
+    })
+    expect(submit).toHaveBeenCalledWith('queued continuation', 'live-thread', false, [])
     await state.close()
   })
 
@@ -93,11 +168,30 @@ describe('BridgeRouter', () => {
     )
     await router.handle({
       kind: 'message', eventId: 'foreign', userId: '999', guildId: 'guild', channelId: 'channel',
-      contextKind: 'channel', text: '', attachments: [{ id: 'a', name: 'x.txt', size: 1, read }],
+      contextKind: 'channel', text: '', attachments: [{ id: 'a', name: 'x.txt', size: 1, read }], mentionsBot: true,
     })
     expect(submit).not.toHaveBeenCalled()
     expect(read).not.toHaveBeenCalled()
     expect(transport.sent).toHaveLength(0)
+    await state.close()
+  })
+
+  it('runs slash commands in guild channels without a mention', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-discord-router-'))
+    directories.push(directory)
+    const state = new StateStore(join(directory, 'state.json'))
+    const transport = new FakeDiscordTransport()
+    const router = new BridgeRouter(
+      transport, new SecurityPolicy({ ownerId: '123', projectRoot: directory }), state,
+      { status: () => 'idle' } as unknown as AgentController,
+      { handle: () => undefined } as unknown as ApprovalInteraction,
+      { handle: () => undefined } as unknown as QuestionInteraction,
+    )
+    const response = await router.handle({
+      kind: 'command', eventId: 'slash', userId: '123', guildId: 'guild', channelId: 'channel',
+      contextKind: 'channel', command: 'status',
+    })
+    expect(response).toEqual({ kind: 'reply', content: 'idle' })
     await state.close()
   })
 

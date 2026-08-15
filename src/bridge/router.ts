@@ -20,6 +20,7 @@ export class BridgeRouter implements DiscordEventHandler {
     const denial = this.policy.authorize(event)
     if (denial === '未授权用户。' && event.guildId !== undefined) return
     if (denial !== undefined) return event.kind === 'message' ? this.send(event.channelId, denial) : { kind: 'reply', content: denial }
+    if (event.kind === 'message' && !this.shouldTrigger(event)) return
     if (!await this.state.claimEvent(event.eventId)) {
       return event.kind === 'message' ? undefined : { kind: 'reply', content: '该事件已处理。' }
     }
@@ -69,6 +70,14 @@ export class BridgeRouter implements DiscordEventHandler {
 
   private async send(channelId: string, content: string): Promise<void> {
     await this.transport.send(channelId, { content })
+  }
+
+  private shouldTrigger(event: Extract<DiscordInboundEvent, { kind: 'message' }>): boolean {
+    if (event.contextKind === 'dm') return true
+    if (event.contextKind === 'channel') return event.mentionsBot === true
+    return event.mentionsBot === true
+      || this.state.conversation(event.channelId)?.sessionId !== undefined
+      || this.controller.hasSession(event.channelId)
   }
 }
 

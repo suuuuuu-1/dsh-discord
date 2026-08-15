@@ -24,6 +24,8 @@ export type DiscordInboundEvent =
     kind: 'message'
     text: string
     attachments: readonly DiscordInboundAttachment[]
+    /** Whether this message explicitly mentioned the connected bot. */
+    mentionsBot?: boolean
   }
   | DiscordInboundBase & {
     kind: 'command'
@@ -83,6 +85,8 @@ export interface DiscordEventHandler {
 export interface DiscordDiagnostics {
   guilds: number
   writableChannels: number
+  /** Permissions unavailable in every inspected guild text channel. */
+  missingPermissions?: string[]
 }
 
 /** Gateway/REST abstraction used by production and deterministic tests. */

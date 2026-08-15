@@ -15,6 +15,7 @@ import { AgentController } from './bridge/agent-controller.js'
 import { ApprovalInteraction } from './interaction/approval.js'
 import { QuestionInteraction } from './interaction/questions.js'
 import { BridgeRouter } from './bridge/router.js'
+import { discordPermissionError } from './discord/permissions.js'
 
 export { FakeDiscordTransport } from './discord/fake.js'
 export type { DiscordTransport, DiscordInboundEvent } from './discord/types.js'
@@ -177,9 +178,8 @@ async function runDoctor(ctx: Context, config: Config, transport: DiscordTranspo
     process.stdout.write('✓ Discord commands: /dsh registered\n')
     const diagnostics = await transport.diagnose?.()
     if (diagnostics !== undefined) {
-      if (diagnostics.guilds > 0 && diagnostics.writableChannels === 0) {
-        throw new Error('Discord permission check failed: no text channel grants View/Send/History/Embed/Attach')
-      }
+      const permissionError = discordPermissionError(diagnostics)
+      if (permissionError !== undefined) throw new Error(permissionError)
       process.stdout.write(`✓ Discord guilds: ${String(diagnostics.guilds)}; writable text channels: ${String(diagnostics.writableChannels)}\n`)
     }
   } finally {

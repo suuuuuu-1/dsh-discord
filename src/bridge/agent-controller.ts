@@ -18,6 +18,9 @@ interface ConversationRuntime {
   opening: Promise<Agent> | undefined
   progress: ProgressReporter | undefined
   settling: Promise<void> | undefined
+  delivery: Promise<void>
+  pendingDeliveries: number
+  generation: number
 }
 
 /** Safe input refusal whose message may be shown back to the Discord owner. */
@@ -51,25 +54,56 @@ export class AgentController {
     return `Session: ${agent.id}\n状态: ${agent.status === 'running' ? '运行中' : '空闲'}`
   }
 
+  /** Whether a persisted, live, or currently opening Session owns this conversation. */
+  hasSession(channelId: string): boolean {
+    if (this.state.conversation(channelId)?.sessionId !== undefined) return true
+    const runtime = this.runtimes.get(channelId)
+    return runtime !== undefined
+      && (runtime.handle !== undefined || runtime.opening !== undefined || runtime.pendingDeliveries > 0)
+  }
+
   async submit(
     text: string,
     channelId: string,
     steering = false,
     attachments: readonly DiscordInboundAttachment[] = [],
   ): Promise<void> {
-    const content = await this.content(text, attachments)
     const runtime = this.runtime(channelId)
+    runtime.pendingDeliveries += 1
+    let content: ContentBlock[]
+    try {
+      content = await this.content(text, attachments)
+    } catch (error) {
+      runtime.pendingDeliveries -= 1
+      throw error
+    }
+    const operation = runtime.delivery.then(() => this.deliver(runtime, content, steering))
+    runtime.delivery = operation.catch(() => undefined)
+    try {
+      await operation
+    } finally {
+      runtime.pendingDeliveries -= 1
+    }
+  }
+
+  private async deliver(runtime: ConversationRuntime, content: ContentBlock[], steering: boolean): Promise<void> {
     const agent = await this.ensureAgent(runtime)
     if (runtime.progress === undefined) {
       const progress = new ProgressReporter(this.transport, this.progressIntervalMs)
       runtime.progress = progress
-      await progress.begin(channelId)
+      try {
+        await progress.begin(runtime.channelId)
+      } catch (error) {
+        if (runtime.progress === progress) runtime.progress = undefined
+        throw error
+      }
     } else {
       runtime.progress.queued(steering)
     }
     const message = createUserMessage({ content, source: { kind: 'user' } })
     if (steering) agent.steer(message)
     else agent.followup(message)
+    runtime.generation += 1
     runtime.settling ??= this.settle(runtime, agent)
   }
 
@@ -128,7 +162,16 @@ export class AgentController {
   private runtime(channelId: string): ConversationRuntime {
     let runtime = this.runtimes.get(channelId)
     if (runtime === undefined) {
-      runtime = { channelId, handle: undefined, opening: undefined, progress: undefined, settling: undefined }
+      runtime = {
+        channelId,
+        handle: undefined,
+        opening: undefined,
+        progress: undefined,
+        settling: undefined,
+        delivery: Promise.resolve(),
+        pendingDeliveries: 0,
+        generation: 0,
+      }
       this.runtimes.set(channelId, runtime)
     }
     return runtime
@@ -186,16 +229,24 @@ export class AgentController {
 
   private async settle(runtime: ConversationRuntime, agent: Agent): Promise<void> {
     try {
-      await agent.whenIdle()
-      await this.ctx.sessions.flush(agent.session)
-      await runtime.progress?.complete()
+      while (runtime.handle?.agent === agent) {
+        const generation = runtime.generation
+        await agent.whenIdle()
+        if (runtime.generation !== generation || agent.status !== 'idle') continue
+        await this.ctx.sessions.flush(agent.session)
+        if (runtime.generation !== generation || agent.status !== 'idle') continue
+        const progress = runtime.progress
+        runtime.progress = undefined
+        await progress?.complete()
+        if (runtime.generation === generation && agent.status === 'idle') return
+      }
     } finally {
-      runtime.progress = undefined
       runtime.settling = undefined
     }
   }
 
   private async release(runtime: ConversationRuntime): Promise<void> {
+    await runtime.delivery.catch(() => undefined)
     if (runtime.opening !== undefined) await runtime.opening.catch(() => undefined)
     const handle = runtime.handle
     runtime.handle = undefined

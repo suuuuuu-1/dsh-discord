@@ -5,7 +5,8 @@ import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline/promises'
-import { OAuth2Scopes, PermissionsBitField } from 'discord.js'
+import { OAuth2Scopes } from 'discord.js'
+import { discordInvitePermissions } from '../discord/permissions.js'
 
 export interface SetupOptions {
   owner?: string
@@ -36,13 +37,7 @@ export async function setup(options: SetupOptions): Promise<void> {
       DSH_DISCORD_SETUP: '1',
       DSH_DISCORD_SETUP_VALUE: token,
     })
-    const permissions = new PermissionsBitField([
-      PermissionsBitField.Flags.ViewChannel,
-      PermissionsBitField.Flags.SendMessages,
-      PermissionsBitField.Flags.ReadMessageHistory,
-      PermissionsBitField.Flags.EmbedLinks,
-      PermissionsBitField.Flags.AttachFiles,
-    ]).bitfield
+    const permissions = discordInvitePermissions()
     const invite = new URL('https://discord.com/oauth2/authorize')
     invite.searchParams.set('client_id', application.id)
     invite.searchParams.set('permissions', String(permissions))
