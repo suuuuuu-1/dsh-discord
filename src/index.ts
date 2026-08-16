@@ -41,10 +41,14 @@ export interface Config {
 }
 
 export const Config: Schema<Config> = Schema.object({
-  tokenRef: Schema.string().required(),
+  // Keep non-secret infrastructure defaults in the schema so generic DSH
+  // loaders can resolve Config({}) without needing to evaluate the bundle
+  // patch first. The Discord token itself still lives exclusively in
+  // ctx.credentials.
+  tokenRef: Schema.string().default('DSH_DISCORD_BOT_TOKEN'),
   ownerId: Schema.string(),
   projectRoot: Schema.string(),
-  statePath: Schema.string().required(),
+  statePath: Schema.string().default('state.json'),
   setupMode: Schema.boolean().default(false),
   doctorMode: Schema.boolean().default(false),
   progressIntervalMs: Schema.number().min(100).default(1500),
