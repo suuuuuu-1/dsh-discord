@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { ApprovalOutcome, ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import type { DiscordInboundEvent, DiscordInteractionResponse, DiscordSentMessage, DiscordTransport } from '../discord/types.js'
 import type { AgentController } from '../bridge/agent-controller.js'
-import { suppressMentions } from '../bridge/renderer.js'
+import { boundedDiscordText, suppressMentions } from '../bridge/renderer.js'
 
 interface PendingApproval {
   resolve(outcome: ApprovalOutcome): void
@@ -36,7 +36,7 @@ export class ApprovalInteraction {
       this.pending.set(nonce, pending)
       const detail = request.reason === undefined ? '' : `\n原因：${suppressMentions(request.reason)}`
       void this.transport.send(channelId, {
-        content: `🔐 工具审批：${suppressMentions(request.toolName)}${detail}`,
+        content: boundedDiscordText(`🔐 工具审批：${suppressMentions(request.toolName)}${detail}`),
         buttons: [
           { customId: `dsh:a:${nonce}:allow`, label: '允许一次', style: 'success' },
           { customId: `dsh:a:${nonce}:reject`, label: '拒绝', style: 'danger' },

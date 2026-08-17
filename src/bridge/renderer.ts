@@ -12,6 +12,15 @@ export function suppressMentions(text: string): string {
     .replace(/<@([!&]?\d+)>/g, '<@\u200b$1>')
 }
 
+/** Keep arbitrary DSH text inside Discord's content limit without splitting a surrogate pair. */
+export function boundedDiscordText(text: string, limit = DISCORD_MESSAGE_LIMIT): string {
+  const safe = suppressMentions(text)
+  if (safe.length <= limit) return safe
+  let prefix = safe.slice(0, Math.max(0, limit - 1))
+  if (/[\uD800-\uDBFF]$/.test(prefix)) prefix = prefix.slice(0, -1)
+  return `${prefix.trimEnd()}…`
+}
+
 /** Extract only committed assistant-visible text, excluding reasoning chunks. */
 export function assistantText(event: SessionEvent<'assistant/message'>): string {
   return event.data.message.content
@@ -34,5 +43,5 @@ export function finalPayload(text: string, status: 'completed' | 'cancelled' | '
 
 /** Bound status content below Discord's hard message limit. */
 export function statusPayload(content: string): DiscordMessagePayload {
-  return { content: suppressMentions(content).slice(0, DISCORD_MESSAGE_LIMIT) }
+  return { content: boundedDiscordText(content) }
 }

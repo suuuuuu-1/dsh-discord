@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { FakeDiscordTransport } from '../src/discord/fake.js'
 import { ProgressReporter } from '../src/bridge/progress.js'
-import { finalPayload, suppressMentions } from '../src/bridge/renderer.js'
+import { boundedDiscordText, finalPayload, suppressMentions } from '../src/bridge/renderer.js'
 
 describe('progress and rendering', () => {
   it('coalesces tool updates and never forwards token chunks', async () => {
@@ -25,5 +25,12 @@ describe('progress and rendering', () => {
     const payload = finalPayload('x'.repeat(3000), 'completed')
     expect(payload.file?.name).toBe('dsh-result.md')
     expect(payload.content).toContain('结果较长')
+  })
+
+  it('bounds Discord content without splitting surrogate pairs', () => {
+    const bounded = boundedDiscordText(`${'x'.repeat(1998)}😀tail`)
+    expect(bounded.length).toBeLessThanOrEqual(2000)
+    expect(bounded.endsWith('\ud83d')).toBe(false)
+    expect(bounded.endsWith('…')).toBe(true)
   })
 })

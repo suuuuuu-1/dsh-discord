@@ -37,6 +37,28 @@ describe('Discord interactions', () => {
     await expect(outcome).resolves.toBe('cancelled')
   })
 
+  it('bounds long approval and question text before sending it to Discord', async () => {
+    const transport = new FakeDiscordTransport()
+    const approvals = new ApprovalInteraction(transport, controller, 10_000)
+    const outcome = approvals.request({
+      agent,
+      toolName: 'bash',
+      reason: `${'x'.repeat(2500)} @everyone`,
+    } as ApprovalRequest)!
+    await vi.waitFor(() => expect(transport.sent).toHaveLength(1))
+    expect(transport.sent[0]?.payload.content).toHaveLength(2000)
+    expect(transport.sent[0]?.payload.content).not.toContain('@everyone')
+    approvals.dispose()
+    await expect(outcome).resolves.toBe('cancelled')
+
+    const questions = new QuestionInteraction(transport, controller, 10_000)
+    const answer = questions.ask({ agent, questions: [{ id: 'long', question: 'q'.repeat(2500) }] })
+    await vi.waitFor(() => expect(transport.sent).toHaveLength(2))
+    expect(transport.sent[1]?.payload.content).toHaveLength(2000)
+    questions.dispose()
+    await expect(answer).rejects.toThrow('disposed')
+  })
+
   it('returns structured selected and custom question answers', async () => {
     const transport = new FakeDiscordTransport()
     const questions = new QuestionInteraction(transport, controller, 10_000)

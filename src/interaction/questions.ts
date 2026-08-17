@@ -8,7 +8,7 @@ import type {
 } from '@deepseek-ai/dsh-user-questions'
 import type { DiscordInboundEvent, DiscordInteractionResponse, DiscordSentMessage, DiscordTransport } from '../discord/types.js'
 import type { AgentController } from '../bridge/agent-controller.js'
-import { suppressMentions } from '../bridge/renderer.js'
+import { boundedDiscordText, suppressMentions } from '../bridge/renderer.js'
 
 interface PendingQuestion {
   question: AskUserQuestionItem
@@ -99,7 +99,7 @@ export class QuestionInteraction implements UserQuestionProvider {
       }
       this.pending.set(nonce, pending)
       void this.transport.send(channelId, {
-        content: `❓ ${heading}${suppressMentions(question.question)}${detail}`,
+        content: boundedDiscordText(`❓ ${heading}${suppressMentions(question.question)}${detail}`),
         ...!selectable ? {} : { select: {
           customId: `dsh:q:${nonce}:select`, placeholder: question.multiSelect ? '可多选' : '请选择',
           options: options.map((option, index) => ({
