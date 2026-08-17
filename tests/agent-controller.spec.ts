@@ -206,4 +206,46 @@ describe('AgentController MVP chain', () => {
     await controller.dispose()
     await state.close()
   })
+
+  it('continues after the final Discord status message can no longer be edited', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-discord-agent-'))
+    directories.push(directory)
+    const state = new StateStore(join(directory, 'state.json'))
+    await state.touchConversation({ channelId: 'dm', kind: 'dm' })
+    const transport = new FakeDiscordTransport()
+    transport.edit = vi.fn().mockRejectedValue(new Error('message deleted'))
+    let status: 'idle' | 'running' = 'idle'
+    let idle = Promise.resolve()
+    let finish: (() => void) | undefined
+    const followup = vi.fn(() => {
+      status = 'running'
+      idle = new Promise<void>(resolve => { finish = () => { status = 'idle'; resolve() } })
+    })
+    const agent = {
+      id: 'resilient-session', session: { id: 'resilient-session', seq: 0 }, get status() { return status },
+      followup, steer: vi.fn(), cancel: vi.fn(), whenIdle: () => idle,
+    } as unknown as Agent
+    const flush = vi.fn().mockResolvedValue(undefined)
+    const ctx = {
+      agents: { create: vi.fn().mockResolvedValue({ agent, dispose: vi.fn() }), resume: vi.fn() },
+      sessions: { flush },
+      attachments: {
+        imageLimits: { maxImageBytes: 10_000_000, maxImagesPerMessage: 4, maxMessageImageBytes: 20_000_000 },
+        validateImage: vi.fn(), saveImage: vi.fn(),
+      },
+      agentDefaultModel: { currentSelection: () => ({ provider: 'p', model: 'm' }) },
+    } as unknown as Context
+    const controller = new AgentController(ctx, directory, state, transport, 10)
+
+    await controller.submit('first', 'dm')
+    finish?.()
+    await vi.waitFor(() => expect(transport.edit).toHaveBeenCalledOnce())
+    expect(flush).toHaveBeenCalledOnce()
+    await controller.submit('second', 'dm')
+    expect(followup).toHaveBeenCalledTimes(2)
+    expect(transport.sent).toHaveLength(2)
+    finish?.()
+    await controller.dispose()
+    await state.close()
+  })
 })

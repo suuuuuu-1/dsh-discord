@@ -104,7 +104,10 @@ export class AgentController {
     if (steering) agent.steer(message)
     else agent.followup(message)
     runtime.generation += 1
-    runtime.settling ??= this.settle(runtime, agent)
+    // Discord messages may be deleted or become unavailable while a turn is
+    // settling. Keep that presentation failure from becoming an unhandled
+    // rejection or poisoning the next queued followup.
+    runtime.settling ??= this.settle(runtime, agent).catch(() => undefined)
   }
 
   async newSession(channelId: string): Promise<string> {
