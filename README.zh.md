@@ -12,7 +12,7 @@ DeepSeek Harness 的双向 Discord 桥接与远程控制插件。
 
 - DM、Guild 文字频道和 Thread 普通消息
 - 每个频道/Thread 独立创建、恢复和持久化 Session
-- `/dsh status`、`/dsh new`、`/dsh stop`、`/dsh steer`
+- `/dsh help`、`/dsh status`、`/dsh new`、`/dsh stop`、`/dsh steer`
 - 合并限频的进度消息、工具安全摘要和最终结果
 - 长结果作为 Markdown 文件发送，禁止 Agent 输出触发 Discord 提及
 - 一次性工具审批按钮和结构化问题（选择器、Modal）
@@ -35,7 +35,9 @@ Bot 安装到服务器后，应在需要使用的频道拥有 View Channel、Sen
 ## 安装与运行
 
 ```bash
-npx dsh-discord setup
+# npm 正式发布前，先从 GitHub 安装 CLI。
+npm install --global github:suuuuuu-1/dsh-discord
+dsh-discord setup --package-spec github:suuuuuu-1/dsh-discord
 dsh-discord doctor
 dsh-discord start
 ```
@@ -47,6 +49,8 @@ dsh-discord start --daemon
 dsh-discord status
 dsh-discord stop
 ```
+
+全局安装的 CLI 只负责启动和管理插件。插件本体仅在专用 `discord` profile 中启用，并固定到 setup 时选择的单个项目目录；它不会自动出现在每个工作目录，也不会安装进 `web` profile。
 
 `setup` 会验证 Token、生成邀请链接、选择项目目录、将包安装到专用 profile，并通过 `ctx.credentials` 保存 Token。不要把 Token 放进聊天、普通配置、日志或命令行参数。
 
