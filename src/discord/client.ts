@@ -180,6 +180,7 @@ export class DiscordJsTransport implements DiscordTransport {
   private async dispatchInteraction(interaction: Interaction): Promise<void> {
     if (interaction.channelId === null) return
     let event: DiscordInboundEvent | undefined
+    let deferredCommand = false
     if ('isChatInputCommand' in interaction && interaction.isChatInputCommand() && interaction.commandName === 'dsh') {
       const command = interaction.options.getSubcommand() as 'help' | 'status' | 'new' | 'stop' | 'steer'
       event = {
@@ -190,6 +191,8 @@ export class DiscordJsTransport implements DiscordTransport {
         command,
         ...(command === 'steer' ? { text: interaction.options.getString('text', true) } : {}),
       }
+      await interaction.deferReply({ ephemeral: true })
+      deferredCommand = true
     } else if ('isMessageComponent' in interaction && interaction.isMessageComponent()) {
       event = {
         kind: 'component', eventId: interaction.id, userId: interaction.user.id,
@@ -216,7 +219,12 @@ export class DiscordJsTransport implements DiscordTransport {
     } catch {
       response = { kind: 'reply', content: '请求处理失败，请查看 dsh-discord 日志。' }
     }
-    if (response === undefined) return
+    if (response === undefined) {
+      if (deferredCommand && interaction.isChatInputCommand()) {
+        await interaction.editReply({ content: '请求已处理。', allowedMentions: { parse: [] }, components: [] })
+      }
+      return
+    }
     if (response.kind === 'modal') {
       if (!interaction.isMessageComponent()) return
       const input = new TextInputBuilder()
@@ -228,6 +236,7 @@ export class DiscordJsTransport implements DiscordTransport {
     }
     const options = { content: response.content, allowedMentions: { parse: [] as never[] }, components: [] as ActionRowBuilder<MessageActionRowComponentBuilder>[] }
     if (response.kind === 'update' && interaction.isMessageComponent()) await interaction.update(options)
+    else if (deferredCommand && interaction.isChatInputCommand()) await interaction.editReply(options)
     else if (interaction.isRepliable()) await interaction.reply({ ...options, ephemeral: true })
   }
 
