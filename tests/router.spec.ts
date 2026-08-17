@@ -197,7 +197,30 @@ describe('BridgeRouter', () => {
 
   it('parses only the supported textual command form', () => {
     expect(parseTextCommand('/dsh steer fix tests')).toEqual({ command: 'steer', text: 'fix tests' })
+    expect(parseTextCommand('/dsh help')).toEqual({ command: 'help' })
     expect(parseTextCommand('/dsh status')).toEqual({ command: 'status' })
     expect(parseTextCommand('/other status')).toBeUndefined()
+  })
+
+  it('returns trigger rules from the help command without starting an Agent', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-discord-router-'))
+    directories.push(directory)
+    const state = new StateStore(join(directory, 'state.json'))
+    const submit = vi.fn()
+    const router = new BridgeRouter(
+      new FakeDiscordTransport(), new SecurityPolicy({ ownerId: '123', projectRoot: directory }), state,
+      { submit } as unknown as AgentController,
+      { handle: () => undefined } as unknown as ApprovalInteraction,
+      { handle: () => undefined } as unknown as QuestionInteraction,
+    )
+    const response = await router.handle({
+      kind: 'command', eventId: 'help', userId: '123', channelId: 'dm', contextKind: 'dm', command: 'help',
+    })
+    expect(response).toMatchObject({ kind: 'reply' })
+    if (response?.kind !== 'reply') throw new Error('expected help reply')
+    expect(response.content).toContain('/dsh steer')
+    expect(response.content).toContain('Guild')
+    expect(submit).not.toHaveBeenCalled()
+    await state.close()
   })
 })

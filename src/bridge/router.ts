@@ -46,9 +46,10 @@ export class BridgeRouter implements DiscordEventHandler {
   }
 
   private async handleCommand(
-    command: 'status' | 'new' | 'stop' | 'steer', channelId: string, text?: string,
+    command: 'help' | 'status' | 'new' | 'stop' | 'steer', channelId: string, text?: string,
   ): Promise<DiscordInteractionResponse> {
     try {
+      if (command === 'help') return { kind: 'reply', content: HELP_TEXT }
       if (command === 'status') return { kind: 'reply', content: this.controller.status(channelId) }
       if (command === 'new') {
         const id = await this.controller.newSession(channelId)
@@ -82,9 +83,19 @@ export class BridgeRouter implements DiscordEventHandler {
 }
 
 /** Parse textual fallbacks for clients that do not expose global commands yet. */
-export function parseTextCommand(text: string): { command: 'status' | 'new' | 'stop' | 'steer'; text?: string } | undefined {
-  const match = /^\/dsh\s+(status|new|stop|steer)(?:\s+([\s\S]+))?\s*$/.exec(text.trim())
+export function parseTextCommand(text: string): { command: 'help' | 'status' | 'new' | 'stop' | 'steer'; text?: string } | undefined {
+  const match = /^\/dsh\s+(help|status|new|stop|steer)(?:\s+([\s\S]+))?\s*$/.exec(text.trim())
   if (match === null) return undefined
-  const command = match[1] as 'status' | 'new' | 'stop' | 'steer'
+  const command = match[1] as 'help' | 'status' | 'new' | 'stop' | 'steer'
   return match[2] === undefined ? { command } : { command, text: match[2] }
 }
+
+const HELP_TEXT = [
+  '**dsh-discord 命令**',
+  '`/dsh status` 查看当前 Session 和 Agent 状态',
+  '`/dsh new` 创建并绑定新 Session',
+  '`/dsh stop` 停止当前任务',
+  '`/dsh steer <文本>` 引导当前任务最近的步骤',
+  '',
+  'DM 普通消息会直接提交；Guild 文字频道首次消息需要 @Bot；已绑定的 Thread 可直接继续对话。',
+].join('\n')

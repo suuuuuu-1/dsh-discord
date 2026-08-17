@@ -29,7 +29,7 @@ export type DiscordInboundEvent =
   }
   | DiscordInboundBase & {
     kind: 'command'
-    command: 'status' | 'new' | 'stop' | 'steer'
+    command: 'help' | 'status' | 'new' | 'stop' | 'steer'
     text?: string
   }
   | DiscordInboundBase & {

@@ -4,6 +4,7 @@ import { SlashCommandBuilder } from 'discord.js'
 export const DSH_COMMAND = new SlashCommandBuilder()
   .setName('dsh')
   .setDescription('控制 DeepSeek Harness')
+  .addSubcommand(command => command.setName('help').setDescription('查看消息触发规则和命令帮助'))
   .addSubcommand(command => command.setName('status').setDescription('查看当前 Agent 状态'))
   .addSubcommand(command => command.setName('new').setDescription('创建一个新 Session'))
   .addSubcommand(command => command.setName('stop').setDescription('停止当前任务'))

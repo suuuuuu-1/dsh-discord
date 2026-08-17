@@ -181,7 +181,7 @@ export class DiscordJsTransport implements DiscordTransport {
     if (interaction.channelId === null) return
     let event: DiscordInboundEvent | undefined
     if ('isChatInputCommand' in interaction && interaction.isChatInputCommand() && interaction.commandName === 'dsh') {
-      const command = interaction.options.getSubcommand() as 'status' | 'new' | 'stop' | 'steer'
+      const command = interaction.options.getSubcommand() as 'help' | 'status' | 'new' | 'stop' | 'steer'
       event = {
         kind: 'command', eventId: interaction.id, userId: interaction.user.id,
         channelId: interaction.channelId,
