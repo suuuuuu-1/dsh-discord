@@ -4,6 +4,8 @@
 
 Bidirectional Discord bridge and remote controller for DeepSeek Harness.
 
+Listed in the independent community-run [DSH Marketplace](https://dshmarketplace.dev/plugins?q=dsh-discord) ([source](https://github.com/DshMarketPlace/dshmarketplace)).
+
 The dedicated `discord` profile supports one owner and project across DMs, guild text channels, and threads. Each Discord conversation owns an independently persisted DSH Session. Owner DMs trigger directly; ordinary guild-channel messages require an explicit bot mention; an already-bound thread continues without repeated mentions. Slash commands never require a mention.
 
 The bot invite requests View Channel, Send Messages, **Send Messages in Threads**, Read Message History, Embed Links, and Attach Files. `doctor` checks the same permission set. Discord server and channel permissions determine where the bot is visible; the plugin remains single-owner and fail-closed.

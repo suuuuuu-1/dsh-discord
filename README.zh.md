@@ -4,6 +4,8 @@
 
 DeepSeek Harness 的双向 Discord 桥接与远程控制插件。
 
+已收录于独立社区项目 [DSH Marketplace](https://dshmarketplace.dev/zh/plugins?q=dsh-discord)（[项目源码](https://github.com/DshMarketPlace/dshmarketplace)）。
+
 插件以独立 `discord` profile 运行，支持单 Owner、单 Project，以及 Discord DM、服务器文字频道和 Thread。每个 Discord 会话独立映射一个可恢复的 DSH Session；普通文本使用 `followup`，运行中自动排队，只有 `/dsh steer` 进入当前任务最近的步骤。
 
 消息触发规则：Owner 在 DM 中可直接对话；Guild 普通文字频道中的自然语言必须明确 `@Bot`；陌生 Thread 的第一条任务也必须 `@Bot`，一旦 Thread 已绑定 DSH Session，后续对话无需重复 mention。`/dsh` Slash Command 始终不要求 mention。未触发的消息会静默忽略。
