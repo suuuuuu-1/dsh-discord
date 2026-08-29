@@ -1,5 +1,7 @@
 # dsh-discord
 
+[![DSH Marketplace install verified](https://dshmarketplace.dev/badge/suuuuuu-1-dsh-discord.svg)](https://dshmarketplace.dev/plugins?q=dsh-discord)
+
 ![dsh-discord — Discord-native DeepSeek Harness remote controller](assets/dsh-discord-cover.png)
 
 Bidirectional Discord bridge and remote controller for DeepSeek Harness.

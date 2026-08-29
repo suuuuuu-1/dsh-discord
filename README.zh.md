@@ -1,5 +1,7 @@
 # dsh-discord
 
+[![DSH Marketplace 实测可装](https://dshmarketplace.dev/badge/suuuuuu-1-dsh-discord.svg)](https://dshmarketplace.dev/zh/plugins?q=dsh-discord)
+
 ![dsh-discord — Discord 原生的 DeepSeek Harness 远程控制器](assets/dsh-discord-cover.png)
 
 DeepSeek Harness 的双向 Discord 桥接与远程控制插件。
