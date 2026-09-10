@@ -179,7 +179,7 @@ async function runDoctor(ctx: Context, config: Config, transport: DiscordTranspo
     const identity = await transport.start(token, { handle: () => Promise.resolve() })
     process.stdout.write(`✓ Discord Gateway: connected as ${identity.username}\n`)
     await transport.registerCommands(identity.applicationId, token)
-    process.stdout.write('✓ Discord commands: /dsh registered\n')
+    process.stdout.write('✓ Discord commands: /dsh /model registered\n')
     const diagnostics = await transport.diagnose?.()
     if (diagnostics !== undefined) {
       const permissionError = discordPermissionError(diagnostics)

@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BridgeRouter, parseTextCommand } from '../src/bridge/router.js'
+import { DiscordInputError } from '../src/bridge/agent-controller.js'
 import { FakeDiscordTransport } from '../src/discord/fake.js'
 import { SecurityPolicy } from '../src/security/policy.js'
 import { StateStore } from '../src/state/store.js'
@@ -219,8 +220,99 @@ describe('BridgeRouter', () => {
     expect(response).toMatchObject({ kind: 'reply' })
     if (response?.kind !== 'reply') throw new Error('expected help reply')
     expect(response.content).toContain('/dsh steer')
+    expect(response.content).toContain('/model set')
     expect(response.content).toContain('Guild')
     expect(submit).not.toHaveBeenCalled()
+    await state.close()
+  })
+
+  it('routes /model list, status, and set slash commands without a mention', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-discord-router-'))
+    directories.push(directory)
+    const state = new StateStore(join(directory, 'state.json'))
+    const switchModel = vi.fn().mockResolvedValue('已切换。')
+    const modelStatus = vi.fn().mockReturnValue('当前模型。')
+    const router = new BridgeRouter(
+      new FakeDiscordTransport(), new SecurityPolicy({ ownerId: '123', projectRoot: directory }), state,
+      { modelStatus, switchModel } as unknown as AgentController,
+      { handle: () => undefined } as unknown as ApprovalInteraction,
+      { handle: () => undefined } as unknown as QuestionInteraction,
+    )
+    const listed = await router.handle({
+      kind: 'command', eventId: 'list', userId: '123', guildId: 'guild', channelId: 'channel',
+      contextKind: 'channel', command: 'model', modelSubcommand: 'list',
+    })
+    expect(listed).toMatchObject({ kind: 'reply' })
+    if (listed?.kind !== 'reply') throw new Error('expected reply')
+    expect(listed.content).toContain('deepseek-official')
+    expect(listed.content).toContain('glm-5.2:cloud')
+
+    const status = await router.handle({
+      kind: 'command', eventId: 'status', userId: '123', channelId: 'dm', contextKind: 'dm',
+      command: 'model', modelSubcommand: 'status',
+    })
+    expect(status).toEqual({ kind: 'reply', content: '当前模型。' })
+    expect(modelStatus).toHaveBeenCalledWith('dm')
+
+    const set = await router.handle({
+      kind: 'command', eventId: 'set', userId: '123', channelId: 'dm', contextKind: 'dm',
+      command: 'model', modelSubcommand: 'set', modelSpec: 'deepseek-official/deepseek-v4-pro',
+    })
+    expect(set).toEqual({ kind: 'reply', content: '已切换。' })
+    expect(switchModel).toHaveBeenCalledWith('dm', 'deepseek-official/deepseek-v4-pro')
+    await state.close()
+  })
+
+  it('surfaces a helpful /model set validation error to the owner', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-discord-router-'))
+    directories.push(directory)
+    const state = new StateStore(join(directory, 'state.json'))
+    const switchModel = vi.fn().mockRejectedValue(
+      new DiscordInputError('未知的提供商「acme」。可用提供商：deepseek-official、ollama。'),
+    )
+    const router = new BridgeRouter(
+      new FakeDiscordTransport(), new SecurityPolicy({ ownerId: '123', projectRoot: directory }), state,
+      { switchModel } as unknown as AgentController,
+      { handle: () => undefined } as unknown as ApprovalInteraction,
+      { handle: () => undefined } as unknown as QuestionInteraction,
+    )
+    const response = await router.handle({
+      kind: 'command', eventId: 'set', userId: '123', channelId: 'dm', contextKind: 'dm',
+      command: 'model', modelSubcommand: 'set', modelSpec: 'acme/x',
+    })
+    expect(response).toEqual({ kind: 'reply', content: '未知的提供商「acme」。可用提供商：deepseek-official、ollama。' })
+    await state.close()
+  })
+
+  it('parses textual /model commands like /dsh commands', () => {
+    expect(parseTextCommand('/model status')).toEqual({ command: 'model', modelSubcommand: 'status' })
+    expect(parseTextCommand('/model list')).toEqual({ command: 'model', modelSubcommand: 'list' })
+    expect(parseTextCommand('/model set deepseek-official/deepseek-v4-pro'))
+      .toEqual({ command: 'model', modelSubcommand: 'set', modelSpec: 'deepseek-official/deepseek-v4-pro' })
+    expect(parseTextCommand('/model set  ollama/glm-5.2:cloud  '))
+      .toEqual({ command: 'model', modelSubcommand: 'set', modelSpec: 'ollama/glm-5.2:cloud' })
+    expect(parseTextCommand('/model')).toBeUndefined()
+    expect(parseTextCommand('/model steve')).toBeUndefined()
+  })
+
+  it('routes textual /model messages through the same controller branch', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-discord-router-'))
+    directories.push(directory)
+    const state = new StateStore(join(directory, 'state.json'))
+    await state.touchConversation({ channelId: 'dm', kind: 'dm' })
+    const switchModel = vi.fn().mockResolvedValue('已切换为 ollama/glm-5.2:cloud。')
+    const router = new BridgeRouter(
+      new FakeDiscordTransport(), new SecurityPolicy({ ownerId: '123', projectRoot: directory }), state,
+      { switchModel } as unknown as AgentController,
+      { handle: () => undefined } as unknown as ApprovalInteraction,
+      { handle: () => undefined } as unknown as QuestionInteraction,
+    )
+    const response = await router.handle({
+      kind: 'message', eventId: 'text-set', userId: '123', channelId: 'dm', contextKind: 'dm',
+      text: '/model set ollama/glm-5.2:cloud', attachments: [],
+    })
+    expect(response).toEqual({ kind: 'reply', content: '已切换为 ollama/glm-5.2:cloud。' })
+    expect(switchModel).toHaveBeenCalledWith('dm', 'ollama/glm-5.2:cloud')
     await state.close()
   })
 })

@@ -15,6 +15,7 @@ DeepSeek Harness 的双向 Discord 桥接与远程控制插件。
 - DM、Guild 文字频道和 Thread 普通消息
 - 每个频道/Thread 独立创建、恢复和持久化 Session
 - `/dsh help`、`/dsh status`、`/dsh new`、`/dsh stop`、`/dsh steer`
+- `/model status`、`/model list`、`/model set`（切换并持久化默认提供商/模型）
 - 合并限频的进度消息、工具安全摘要和最终结果
 - 长结果作为 Markdown 文件发送，禁止 Agent 输出触发 Discord 提及
 - 一次性工具审批按钮和结构化问题（选择器、Modal）

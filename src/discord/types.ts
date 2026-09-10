@@ -18,6 +18,9 @@ interface DiscordInboundBase {
   contextKind: DiscordContextKind
 }
 
+/** Subcommands exposed by the global `/model` command. */
+export type ModelSubcommand = 'status' | 'list' | 'set'
+
 /** Transport-neutral Discord bridge events. */
 export type DiscordInboundEvent =
   | DiscordInboundBase & {
@@ -29,8 +32,12 @@ export type DiscordInboundEvent =
   }
   | DiscordInboundBase & {
     kind: 'command'
-    command: 'help' | 'status' | 'new' | 'stop' | 'steer'
+    command: 'help' | 'status' | 'new' | 'stop' | 'steer' | 'model'
     text?: string
+    /** `/model` subcommand when `command === 'model'`. */
+    modelSubcommand?: ModelSubcommand
+    /** `/model set` spec (`provider/model`) when supplied. */
+    modelSpec?: string
   }
   | DiscordInboundBase & {
     kind: 'component'

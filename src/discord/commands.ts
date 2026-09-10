@@ -15,3 +15,20 @@ export const DSH_COMMAND = new SlashCommandBuilder()
 
 /** JSON body accepted by Discord's application-command REST endpoint. */
 export const DSH_COMMAND_BODY = DSH_COMMAND.toJSON()
+
+/** Global `/model` command definition for switching the active LLM selection. */
+export const MODEL_COMMAND = new SlashCommandBuilder()
+  .setName('model')
+  .setDescription('切换当前 LLM 提供商与模型')
+  .addSubcommand(command => command.setName('status').setDescription('查看当前会话模型与默认模型'))
+  .addSubcommand(command => command.setName('list').setDescription('列出可用提供商与模型'))
+  .addSubcommand(command => command
+    .setName('set')
+    .setDescription('切换模型')
+    .addStringOption(option => option
+      .setName('spec')
+      .setDescription('provider/model，例如 deepseek-official/deepseek-v4-flash')
+      .setRequired(true)))
+
+/** JSON body accepted by Discord's application-command REST endpoint. */
+export const MODEL_COMMAND_BODY = MODEL_COMMAND.toJSON()

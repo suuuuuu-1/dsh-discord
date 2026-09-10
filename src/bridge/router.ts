@@ -2,6 +2,7 @@ import type { DiscordEventHandler, DiscordInboundEvent, DiscordInteractionRespon
 import type { SecurityPolicy } from '../security/policy.js'
 import type { StateStore } from '../state/store.js'
 import { DiscordInputError, type AgentController } from './agent-controller.js'
+import { listText } from '../model/catalog.js'
 import type { ApprovalInteraction } from '../interaction/approval.js'
 import type { QuestionInteraction } from '../interaction/questions.js'
 
@@ -33,9 +34,18 @@ export class BridgeRouter implements DiscordEventHandler {
       return this.approvals.handle(event) ?? this.questions.handle(event)
         ?? { kind: 'reply', content: '该交互不存在或已过期。' }
     }
-    if (event.kind === 'command') return this.handleCommand(event.command, event.channelId, event.text)
+    if (event.kind === 'command') {
+      return this.handleCommand(event.command, event.channelId, event.text, event.modelSubcommand, event.modelSpec)
+    }
     const textual = event.attachments.length === 0 ? parseTextCommand(event.text) : undefined
-    if (textual !== undefined) return this.handleCommand(textual.command, event.channelId, textual.text)
+    if (textual !== undefined) {
+      return this.handleCommand(
+        textual.command, event.channelId,
+        'text' in textual ? textual.text : undefined,
+        'modelSubcommand' in textual ? textual.modelSubcommand : undefined,
+        'modelSubcommand' in textual ? textual.modelSpec : undefined,
+      )
+    }
     try {
       await this.controller.submit(event.text, event.channelId, false, event.attachments)
     } catch (error) {
@@ -46,7 +56,11 @@ export class BridgeRouter implements DiscordEventHandler {
   }
 
   private async handleCommand(
-    command: 'help' | 'status' | 'new' | 'stop' | 'steer', channelId: string, text?: string,
+    command: 'help' | 'status' | 'new' | 'stop' | 'steer' | 'model',
+    channelId: string,
+    text?: string,
+    modelSubcommand?: 'status' | 'list' | 'set',
+    modelSpec?: string,
   ): Promise<DiscordInteractionResponse> {
     try {
       if (command === 'help') return { kind: 'reply', content: HELP_TEXT }
@@ -59,13 +73,26 @@ export class BridgeRouter implements DiscordEventHandler {
         const stopped = await this.controller.stop(channelId)
         return { kind: 'reply', content: stopped ? '已请求停止当前任务。' : '当前没有运行中的任务。' }
       }
-      if (text?.trim()) {
-        await this.controller.submit(text, channelId, true)
-        return { kind: 'reply', content: '已将引导排入当前任务最近的步骤。' }
+      if (command === 'steer') {
+        if (text?.trim()) {
+          await this.controller.submit(text, channelId, true)
+          return { kind: 'reply', content: '已将引导排入当前任务最近的步骤。' }
+        }
+        return { kind: 'reply', content: '用法：/dsh steer <文本>' }
       }
-      return { kind: 'reply', content: '用法：/dsh steer <文本>' }
-    } catch {
-      return { kind: 'reply', content: '命令执行失败。请运行 dsh-discord doctor 检查配置。' }
+      if (modelSubcommand === 'list') return { kind: 'reply', content: listText() }
+      if (modelSubcommand === 'set') {
+        if (modelSpec?.trim()) return { kind: 'reply', content: await this.controller.switchModel(channelId, modelSpec) }
+        return { kind: 'reply', content: '用法：/model set <provider/model>' }
+      }
+      return { kind: 'reply', content: this.controller.modelStatus(channelId) }
+    } catch (error) {
+      return {
+        kind: 'reply',
+        content: error instanceof DiscordInputError
+          ? error.message
+          : '命令执行失败。请运行 dsh-discord doctor 检查配置。',
+      }
     }
   }
 
@@ -82,12 +109,27 @@ export class BridgeRouter implements DiscordEventHandler {
   }
 }
 
+/** Textual command accepted by a DM or mentioned message. */
+export type ParsedTextCommand =
+  | { command: 'help' | 'status' | 'new' | 'stop' | 'steer'; text?: string }
+  | { command: 'model'; modelSubcommand: 'status' | 'list' | 'set'; modelSpec?: string }
+
 /** Parse textual fallbacks for clients that do not expose global commands yet. */
-export function parseTextCommand(text: string): { command: 'help' | 'status' | 'new' | 'stop' | 'steer'; text?: string } | undefined {
-  const match = /^\/dsh\s+(help|status|new|stop|steer)(?:\s+([\s\S]+))?\s*$/.exec(text.trim())
-  if (match === null) return undefined
-  const command = match[1] as 'help' | 'status' | 'new' | 'stop' | 'steer'
-  return match[2] === undefined ? { command } : { command, text: match[2] }
+export function parseTextCommand(text: string): ParsedTextCommand | undefined {
+  const trimmed = text.trim()
+  const dsh = /^\/dsh\s+(help|status|new|stop|steer)(?:\s+([\s\S]+))?\s*$/.exec(trimmed)
+  if (dsh !== null) {
+    const command = dsh[1] as 'help' | 'status' | 'new' | 'stop' | 'steer'
+    return dsh[2] === undefined ? { command } : { command, text: dsh[2] }
+  }
+  const model = /^\/model\s+(status|list|set)(?:\s+([\s\S]+))?\s*$/.exec(trimmed)
+  if (model !== null) {
+    const modelSubcommand = model[1] as 'status' | 'list' | 'set'
+    return model[2] === undefined
+      ? { command: 'model', modelSubcommand }
+      : { command: 'model', modelSubcommand, modelSpec: model[2] }
+  }
+  return undefined
 }
 
 const HELP_TEXT = [
@@ -96,6 +138,9 @@ const HELP_TEXT = [
   '`/dsh new` 创建并绑定新 Session',
   '`/dsh stop` 停止当前任务',
   '`/dsh steer <文本>` 引导当前任务最近的步骤',
+  '`/model status` 查看当前会话模型与默认模型',
+  '`/model list` 列出可用提供商与模型',
+  '`/model set <provider/model>` 切换提供商与模型并保存为默认',
   '',
   'DM 普通消息会直接提交；Guild 文字频道首次消息需要 @Bot；已绑定的 Thread 可直接继续对话。',
 ].join('\n')

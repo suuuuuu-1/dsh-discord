@@ -10,7 +10,21 @@ The dedicated `discord` profile supports one owner and project across DMs, guild
 
 The bot invite requests View Channel, Send Messages, **Send Messages in Threads**, Read Message History, Embed Links, and Attach Files. `doctor` checks the same permission set. Discord server and channel permissions determine where the bot is visible; the plugin remains single-owner and fail-closed.
 
-The controller includes natural text, `/dsh help/status/new/stop/steer`, coalesced progress, approvals, structured questions, image and text/code attachment ingress, durable event deduplication, Gateway reconnect, and managed daemon operation.
+The controller includes natural text, `/dsh help/status/new/stop/steer`, `/model status/list/set`, coalesced progress, approvals, structured questions, image and text/code attachment ingress, durable event deduplication, Gateway reconnect, and managed daemon operation.
+
+## Commands
+
+All slash commands run without a bot mention. `/dsh new` clears the conversation; `/model set` switches the LLM provider/model for the current conversation, persists the choice as the new default, and — when the provider changes — resumes the same persisted Session on the new provider with the next message.
+
+- `/dsh status` — current Session and Agent state
+- `/dsh new` — create and bind a new Session
+- `/dsh stop` — stop the current task
+- `/dsh steer <text>` — steer the current task's nearest step
+- `/model status` — current conversation model plus the saved default
+- `/model list` — available providers and models
+- `/model set <provider/model>` — switch provider/model (e.g. `deepseek-official/deepseek-v4-flash`) and save it as the default
+
+The textual equivalents (`/model list`, `/model set …`, etc.) also work as DM messages.
 
 Enable **Message Content Intent** on the Discord Developer Portal Bot page for natural guild-channel messages.
 

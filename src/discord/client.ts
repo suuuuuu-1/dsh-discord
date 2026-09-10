@@ -15,7 +15,7 @@ import {
   type MessageActionRowComponentBuilder,
   type Interaction,
 } from 'discord.js'
-import { DSH_COMMAND_BODY } from './commands.js'
+import { DSH_COMMAND_BODY, MODEL_COMMAND_BODY } from './commands.js'
 import { componentRows } from './components.js'
 import {
   missingDiscordPermissions,
@@ -109,7 +109,7 @@ export class DiscordJsTransport implements DiscordTransport {
 
   async registerCommands(applicationId: string, token: string): Promise<void> {
     const rest = new REST({ version: '10' }).setToken(token)
-    await rest.put(Routes.applicationCommands(applicationId), { body: [DSH_COMMAND_BODY] })
+    await rest.put(Routes.applicationCommands(applicationId), { body: [DSH_COMMAND_BODY, MODEL_COMMAND_BODY] })
       .catch(() => { throw new Error('Discord command registration failed') })
   }
 
@@ -181,15 +181,30 @@ export class DiscordJsTransport implements DiscordTransport {
     if (interaction.channelId === null) return
     let event: DiscordInboundEvent | undefined
     let deferredCommand = false
-    if ('isChatInputCommand' in interaction && interaction.isChatInputCommand() && interaction.commandName === 'dsh') {
-      const command = interaction.options.getSubcommand() as 'help' | 'status' | 'new' | 'stop' | 'steer'
-      event = {
-        kind: 'command', eventId: interaction.id, userId: interaction.user.id,
-        channelId: interaction.channelId,
-        ...(interaction.guildId === null ? {} : { guildId: interaction.guildId }),
-        contextKind: interaction.guildId === null ? 'dm' : interaction.channel?.isThread() === true ? 'thread' : 'channel',
-        command,
-        ...(command === 'steer' ? { text: interaction.options.getString('text', true) } : {}),
+    if ('isChatInputCommand' in interaction && interaction.isChatInputCommand()
+      && (interaction.commandName === 'dsh' || interaction.commandName === 'model')) {
+      const subcommand = interaction.options.getSubcommand()
+      if (interaction.commandName === 'dsh') {
+        const command = subcommand as 'help' | 'status' | 'new' | 'stop' | 'steer'
+        event = {
+          kind: 'command', eventId: interaction.id, userId: interaction.user.id,
+          channelId: interaction.channelId,
+          ...(interaction.guildId === null ? {} : { guildId: interaction.guildId }),
+          contextKind: interaction.guildId === null ? 'dm' : interaction.channel?.isThread() === true ? 'thread' : 'channel',
+          command,
+          ...(command === 'steer' ? { text: interaction.options.getString('text', true) } : {}),
+        }
+      } else {
+        const modelSubcommand = subcommand as 'status' | 'list' | 'set'
+        event = {
+          kind: 'command', eventId: interaction.id, userId: interaction.user.id,
+          channelId: interaction.channelId,
+          ...(interaction.guildId === null ? {} : { guildId: interaction.guildId }),
+          contextKind: interaction.guildId === null ? 'dm' : interaction.channel?.isThread() === true ? 'thread' : 'channel',
+          command: 'model',
+          modelSubcommand,
+          ...(modelSubcommand === 'set' ? { modelSpec: interaction.options.getString('spec', true) } : {}),
+        }
       }
       await interaction.deferReply({ ephemeral: true })
       deferredCommand = true
