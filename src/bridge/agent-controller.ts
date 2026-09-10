@@ -7,6 +7,7 @@ import { createUserMessage, type ContentBlock } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { DiscordInboundAttachment, DiscordTransport } from '../discord/types.js'
 import type { StateStore } from '../state/store.js'
+import { describe, resolveModelSpec } from '../model/catalog.js'
 import { ProgressReporter } from './progress.js'
 
 const MAX_TEXT_ATTACHMENT_BYTES = 512 * 1024
@@ -14,6 +15,8 @@ const MAX_TEXT_ATTACHMENTS_BYTES = 1024 * 1024
 
 interface ConversationRuntime {
   readonly channelId: string
+  /** Mutable per-conversation model selection installed on every open Agent. */
+  selection: ModelSelectionRef
   handle: AgentHandle | undefined
   opening: Promise<Agent> | undefined
   progress: ProgressReporter | undefined
@@ -125,6 +128,38 @@ export class AgentController {
     return true
   }
 
+  /** Current conversation model plus the persisted default. */
+  modelStatus(channelId: string): string {
+    const saved = this.selection()
+    const current = this.runtimes.get(channelId)?.selection.current ?? saved
+    return `当前会话模型：${describe(current)}\n默认模型：${describe(saved)}`
+  }
+
+  /**
+   * Persist a new default model and apply it to one conversation.
+   *
+   * Same-provider switches mutate the live selection ref (effective next step);
+   * cross-provider switches persist the default and release the Agent so the
+   * next message resumes the persisted Session on the new provider route.
+   */
+  async switchModel(channelId: string, spec: string): Promise<string> {
+    let next: { provider: string; model: string }
+    try {
+      next = resolveModelSpec(spec)
+    } catch (error) {
+      throw new DiscordInputError(error instanceof Error ? error.message : '无法识别的模型。')
+    }
+    await this.ctx.agentDefaultModel.saveSelection(next)
+    const runtime = this.runtime(channelId)
+    const sameProvider = runtime.selection.current?.provider === next.provider
+    runtime.selection.current = next
+    if (sameProvider) return `已切换为 ${describe(next)}。下一次消息生效。`
+    const agent = runtime.handle?.agent
+    if (agent !== undefined && agent.status === 'running') agent.cancel({ kind: 'user' })
+    await this.release(runtime)
+    return `已切换为 ${describe(next)}。会话将以下一条消息在新提供商上继续。`
+  }
+
   observe(session: { id: unknown }, event: SessionEvent): void {
     for (const runtime of this.runtimes.values()) {
       const agent = runtime.handle?.agent
@@ -167,6 +202,7 @@ export class AgentController {
     if (runtime === undefined) {
       runtime = {
         channelId,
+        selection: { current: this.selection(), assembled: undefined },
         handle: undefined,
         opening: undefined,
         progress: undefined,
@@ -197,7 +233,7 @@ export class AgentController {
     runtime.handle = await this.ctx.agents.resume({
       resumeSessionId: SessionId(persisted),
       agentOptions: this.agentOptions(),
-      setup: agentCtx => this.setupSelection(agentCtx),
+      setup: agentCtx => { installModelSelection(agentCtx, runtime.selection) },
     })
     await runtime.handle.agent.whenIdle()
     return runtime.handle.agent
@@ -209,7 +245,7 @@ export class AgentController {
       sessionId,
       meta: { cwd: this.projectRoot },
       agentOptions: this.agentOptions(),
-      setup: agentCtx => this.setupSelection(agentCtx),
+      setup: agentCtx => { installModelSelection(agentCtx, runtime.selection) },
     })
     await runtime.handle.agent.whenIdle()
     await this.state.setSessionId(runtime.channelId, String(sessionId))
@@ -223,11 +259,6 @@ export class AgentController {
   private agentOptions() {
     const selection = this.selection()
     return { provider: selection.provider, model: selection.model }
-  }
-
-  private setupSelection(agentCtx: Context): void {
-    const selected: ModelSelectionRef = { current: this.selection(), assembled: undefined }
-    installModelSelection(agentCtx, selected)
   }
 
   private async settle(runtime: ConversationRuntime, agent: Agent): Promise<void> {
