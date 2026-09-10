@@ -14,8 +14,9 @@ import {
   ActionRowBuilder,
   type MessageActionRowComponentBuilder,
   type Interaction,
+  type Message,
 } from 'discord.js'
-import { DSH_COMMAND_BODY } from './commands.js'
+import { DSH_COMMAND_BODY, MODEL_COMMAND_BODY } from './commands.js'
 import { componentRows } from './components.js'
 import {
   missingDiscordPermissions,
@@ -52,29 +53,7 @@ export class DiscordJsTransport implements DiscordTransport {
     // Keep runtime socket errors contained while discord.js performs its own reconnect policy.
     client.on(Events.Error, () => undefined)
     client.on(Events.MessageCreate, (message) => {
-      if (message.author.bot) return
-      const botId = client.user?.id
-      const mentionsBot = botId !== undefined && message.mentions.users.has(botId)
-      const event: DiscordInboundEvent = {
-        kind: 'message',
-        eventId: message.id,
-        userId: message.author.id,
-        channelId: message.channelId,
-        ...(message.guildId === null ? {} : { guildId: message.guildId }),
-        contextKind: message.guildId === null ? 'dm' : message.channel.isThread() ? 'thread' : 'channel',
-        text: botId === undefined ? message.content : stripBotMention(message.content, botId),
-        mentionsBot,
-        attachments: message.attachments.map(attachment => ({
-          id: attachment.id,
-          name: attachment.name,
-          ...(attachment.contentType === null ? {} : { mediaType: attachment.contentType }),
-          size: attachment.size,
-          read: () => this.downloadAttachment(attachment.url, attachment.size),
-        })),
-      }
-      void this.dispatch(event).catch(() => {
-        void this.send(message.channelId, { content: 'Discord 消息处理失败，请查看 dsh-discord 日志。' }).catch(() => undefined)
-      })
+      this.handleInboundMessage(message)
     })
     client.on(Events.InteractionCreate, (interaction) => {
       void this.dispatchInteraction(interaction).catch(() => undefined)
@@ -109,8 +88,46 @@ export class DiscordJsTransport implements DiscordTransport {
 
   async registerCommands(applicationId: string, token: string): Promise<void> {
     const rest = new REST({ version: '10' }).setToken(token)
-    await rest.put(Routes.applicationCommands(applicationId), { body: [DSH_COMMAND_BODY] })
+    await rest.put(Routes.applicationCommands(applicationId), { body: [DSH_COMMAND_BODY, MODEL_COMMAND_BODY] })
       .catch(() => { throw new Error('Discord command registration failed') })
+  }
+
+  /**
+   * Translate one inbound Discord message into a DSH event.
+   *
+   * A message that resolves to a textual command (for example `/model status`
+   * typed before the Discord client has cached the global command) answers with
+   * a `reply` response and no Agent turn — that reply must be posted back to the
+   * channel, otherwise the command appears to do nothing.
+   */
+  private handleInboundMessage(message: Message): void {
+    if (message.author.bot) return
+    const botId = this.client?.user?.id
+    const mentionsBot = botId !== undefined && message.mentions.users.has(botId)
+    const event: DiscordInboundEvent = {
+      kind: 'message',
+      eventId: message.id,
+      userId: message.author.id,
+      channelId: message.channelId,
+      ...(message.guildId === null ? {} : { guildId: message.guildId }),
+      contextKind: message.guildId === null ? 'dm' : message.channel.isThread() ? 'thread' : 'channel',
+      text: botId === undefined ? message.content : stripBotMention(message.content, botId),
+      mentionsBot,
+      attachments: message.attachments.map(attachment => ({
+        id: attachment.id,
+        name: attachment.name,
+        ...(attachment.contentType === null ? {} : { mediaType: attachment.contentType }),
+        size: attachment.size,
+        read: () => this.downloadAttachment(attachment.url, attachment.size),
+      })),
+    }
+    void this.dispatch(event).then((response) => {
+      if (response !== undefined && response.kind === 'reply') {
+        void this.send(message.channelId, { content: response.content }).catch(() => undefined)
+      }
+    }).catch(() => {
+      void this.send(message.channelId, { content: 'Discord 消息处理失败，请查看 dsh-discord 日志。' }).catch(() => undefined)
+    })
   }
 
   async send(channelId: string, payload: DiscordMessagePayload): Promise<DiscordSentMessage> {
@@ -181,15 +198,30 @@ export class DiscordJsTransport implements DiscordTransport {
     if (interaction.channelId === null) return
     let event: DiscordInboundEvent | undefined
     let deferredCommand = false
-    if ('isChatInputCommand' in interaction && interaction.isChatInputCommand() && interaction.commandName === 'dsh') {
-      const command = interaction.options.getSubcommand() as 'help' | 'status' | 'new' | 'stop' | 'steer'
-      event = {
-        kind: 'command', eventId: interaction.id, userId: interaction.user.id,
-        channelId: interaction.channelId,
-        ...(interaction.guildId === null ? {} : { guildId: interaction.guildId }),
-        contextKind: interaction.guildId === null ? 'dm' : interaction.channel?.isThread() === true ? 'thread' : 'channel',
-        command,
-        ...(command === 'steer' ? { text: interaction.options.getString('text', true) } : {}),
+    if ('isChatInputCommand' in interaction && interaction.isChatInputCommand()
+      && (interaction.commandName === 'dsh' || interaction.commandName === 'model')) {
+      const subcommand = interaction.options.getSubcommand()
+      if (interaction.commandName === 'dsh') {
+        const command = subcommand as 'help' | 'status' | 'new' | 'stop' | 'steer'
+        event = {
+          kind: 'command', eventId: interaction.id, userId: interaction.user.id,
+          channelId: interaction.channelId,
+          ...(interaction.guildId === null ? {} : { guildId: interaction.guildId }),
+          contextKind: interaction.guildId === null ? 'dm' : interaction.channel?.isThread() === true ? 'thread' : 'channel',
+          command,
+          ...(command === 'steer' ? { text: interaction.options.getString('text', true) } : {}),
+        }
+      } else {
+        const modelSubcommand = subcommand as 'status' | 'list' | 'set'
+        event = {
+          kind: 'command', eventId: interaction.id, userId: interaction.user.id,
+          channelId: interaction.channelId,
+          ...(interaction.guildId === null ? {} : { guildId: interaction.guildId }),
+          contextKind: interaction.guildId === null ? 'dm' : interaction.channel?.isThread() === true ? 'thread' : 'channel',
+          command: 'model',
+          modelSubcommand,
+          ...(modelSubcommand === 'set' ? { modelSpec: interaction.options.getString('spec', true) } : {}),
+        }
       }
       await interaction.deferReply({ ephemeral: true })
       deferredCommand = true
