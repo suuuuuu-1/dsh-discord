@@ -84,4 +84,35 @@ describe('DiscordJsTransport interactions', () => {
     expect(editReply).toHaveBeenCalledWith(expect.objectContaining({ content: 'created' }))
     expect(reply).not.toHaveBeenCalled()
   })
+
+  it('posts a textual command reply back to the channel', async () => {
+    // Textual commands (for example `/model status` typed before the Discord
+    // client caches the global command) answer without an Agent turn; the reply
+    // must reach the channel or the command looks like a no-op.
+    const transport = new DiscordJsTransport()
+    const internals = transport as unknown as {
+      handler: DiscordEventHandler
+      send: (channelId: string, payload: { content: string }) => Promise<unknown>
+      handleInboundMessage(message: unknown): void
+    }
+    internals.handler = {
+      handle: vi.fn(async () => ({ kind: 'reply' as const, content: '模型状态：deepseek-official/deepseek-v4-flash' })),
+    }
+    const send = vi.fn(async () => ({ id: 'sent' }))
+    internals.send = send
+    internals.handleInboundMessage({
+      id: 'm1',
+      content: '/model status',
+      channelId: 'channel-1',
+      guildId: null,
+      author: { id: 'owner', bot: false },
+      mentions: { users: { has: () => false } },
+      attachments: [],
+      channel: { isThread: () => false },
+    })
+
+    await new Promise(resolve => setImmediate(resolve))
+
+    expect(send).toHaveBeenCalledWith('channel-1', { content: '模型状态：deepseek-official/deepseek-v4-flash' })
+  })
 })

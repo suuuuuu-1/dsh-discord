@@ -14,6 +14,7 @@ import {
   ActionRowBuilder,
   type MessageActionRowComponentBuilder,
   type Interaction,
+  type Message,
 } from 'discord.js'
 import { DSH_COMMAND_BODY, MODEL_COMMAND_BODY } from './commands.js'
 import { componentRows } from './components.js'
@@ -52,29 +53,7 @@ export class DiscordJsTransport implements DiscordTransport {
     // Keep runtime socket errors contained while discord.js performs its own reconnect policy.
     client.on(Events.Error, () => undefined)
     client.on(Events.MessageCreate, (message) => {
-      if (message.author.bot) return
-      const botId = client.user?.id
-      const mentionsBot = botId !== undefined && message.mentions.users.has(botId)
-      const event: DiscordInboundEvent = {
-        kind: 'message',
-        eventId: message.id,
-        userId: message.author.id,
-        channelId: message.channelId,
-        ...(message.guildId === null ? {} : { guildId: message.guildId }),
-        contextKind: message.guildId === null ? 'dm' : message.channel.isThread() ? 'thread' : 'channel',
-        text: botId === undefined ? message.content : stripBotMention(message.content, botId),
-        mentionsBot,
-        attachments: message.attachments.map(attachment => ({
-          id: attachment.id,
-          name: attachment.name,
-          ...(attachment.contentType === null ? {} : { mediaType: attachment.contentType }),
-          size: attachment.size,
-          read: () => this.downloadAttachment(attachment.url, attachment.size),
-        })),
-      }
-      void this.dispatch(event).catch(() => {
-        void this.send(message.channelId, { content: 'Discord 消息处理失败，请查看 dsh-discord 日志。' }).catch(() => undefined)
-      })
+      this.handleInboundMessage(message)
     })
     client.on(Events.InteractionCreate, (interaction) => {
       void this.dispatchInteraction(interaction).catch(() => undefined)
@@ -111,6 +90,44 @@ export class DiscordJsTransport implements DiscordTransport {
     const rest = new REST({ version: '10' }).setToken(token)
     await rest.put(Routes.applicationCommands(applicationId), { body: [DSH_COMMAND_BODY, MODEL_COMMAND_BODY] })
       .catch(() => { throw new Error('Discord command registration failed') })
+  }
+
+  /**
+   * Translate one inbound Discord message into a DSH event.
+   *
+   * A message that resolves to a textual command (for example `/model status`
+   * typed before the Discord client has cached the global command) answers with
+   * a `reply` response and no Agent turn — that reply must be posted back to the
+   * channel, otherwise the command appears to do nothing.
+   */
+  private handleInboundMessage(message: Message): void {
+    if (message.author.bot) return
+    const botId = this.client?.user?.id
+    const mentionsBot = botId !== undefined && message.mentions.users.has(botId)
+    const event: DiscordInboundEvent = {
+      kind: 'message',
+      eventId: message.id,
+      userId: message.author.id,
+      channelId: message.channelId,
+      ...(message.guildId === null ? {} : { guildId: message.guildId }),
+      contextKind: message.guildId === null ? 'dm' : message.channel.isThread() ? 'thread' : 'channel',
+      text: botId === undefined ? message.content : stripBotMention(message.content, botId),
+      mentionsBot,
+      attachments: message.attachments.map(attachment => ({
+        id: attachment.id,
+        name: attachment.name,
+        ...(attachment.contentType === null ? {} : { mediaType: attachment.contentType }),
+        size: attachment.size,
+        read: () => this.downloadAttachment(attachment.url, attachment.size),
+      })),
+    }
+    void this.dispatch(event).then((response) => {
+      if (response !== undefined && response.kind === 'reply') {
+        void this.send(message.channelId, { content: response.content }).catch(() => undefined)
+      }
+    }).catch(() => {
+      void this.send(message.channelId, { content: 'Discord 消息处理失败，请查看 dsh-discord 日志。' }).catch(() => undefined)
+    })
   }
 
   async send(channelId: string, payload: DiscordMessagePayload): Promise<DiscordSentMessage> {
